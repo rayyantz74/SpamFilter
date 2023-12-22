@@ -1,0 +1,84 @@
+import pandas as pd
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.svm import SVC
+from sklearn.preprocessing import LabelEncoder, StandardScaler
+from sklearn.feature_selection import RFECV
+from sklearn.model_selection import train_test_split, GridSearchCV, StratifiedKFold
+from sklearn.metrics import accuracy_score, confusion_matrix
+
+# Load the data
+df = pd.read_csv('ClaMP_Integrated-5184.csv')
+
+# Convert categorical columns to numerical values
+label_encoders = {}
+for column in df.select_dtypes(include=['object']).columns:
+    le = LabelEncoder()
+    df[column] = le.fit_transform(df[column])
+    label_encoders[column] = le
+
+# Feature Selection
+X = df.drop(columns=['class'])
+y = df['class']
+
+clf = DecisionTreeClassifier()
+selector = RFECV(estimator=clf, step=1, cv=StratifiedKFold(10), scoring="accuracy")
+selector = selector.fit(X, y)
+
+X_tree = X[X.columns[selector.support_]]
+
+# Feature Transformation for Decision Tree
+scaler_tree = StandardScaler()
+X_tree = scaler_tree.fit_transform(X_tree)
+
+# Train-test split for Decision Tree
+X_train_tree, X_test_tree, y_train_tree, y_test_tree = train_test_split(X_tree, y, test_size=0.3, random_state=42)
+
+# Decision Tree hyperparameter tuning using GridSearchCV
+param_grid_tree = {
+    'criterion': ['gini', 'entropy'],
+    'max_depth': [None, 10, 20, 30, 40, 50],
+    'min_samples_split': [2, 5, 10],
+    'min_samples_leaf': [1, 2, 4]
+}
+grid_search_tree = GridSearchCV(DecisionTreeClassifier(), param_grid_tree, refit=True, verbose=1)
+grid_search_tree.fit(X_train_tree, y_train_tree)
+best_tree = grid_search_tree.best_estimator_
+
+# Predict using the best Decision Tree model
+y_pred_tree = best_tree.predict(X_test_tree)
+
+# Calculate accuracy and false positive rate for Decision Tree
+accuracy_tree = accuracy_score(y_test_tree, y_pred_tree)
+tn_tree, fp_tree, fn_tree, tp_tree = confusion_matrix(y_test_tree, y_pred_tree).ravel()
+fpr_tree = fp_tree / (fp_tree + tn_tree)
+
+print("Optimized Decision Tree Accuracy:", accuracy_tree)
+print("Optimized Decision Tree False Positive Rate:", fpr_tree)
+
+# Feature Transformation for SVM (using the original X)
+scaler_svm = StandardScaler()
+X_svm = scaler_svm.fit_transform(X)
+
+# Train-test split for SVM
+X_train_svm, X_test_svm, y_train_svm, y_test_svm = train_test_split(X_svm, y, test_size=0.3, random_state=42)
+
+# SVM hyperparameter tuning using GridSearchCV
+param_grid_svm = {
+    'C': [0.1, 1, 10, 100], 
+    'gamma': [1, 0.1, 0.01, 0.001],
+    'kernel': ['linear', 'rbf']
+}
+grid_search_svm = GridSearchCV(SVC(), param_grid_svm, refit=True, verbose=1)
+grid_search_svm.fit(X_train_svm, y_train_svm)
+best_svm = grid_search_svm.best_estimator_
+
+# Predict using the best SVM model
+y_pred_svm = best_svm.predict(X_test_svm)
+
+# Calculate accuracy and false positive rate for SVM
+accuracy_svm = accuracy_score(y_test_svm, y_pred_svm)
+tn_svm, fp_svm, fn_svm, tp_svm = confusion_matrix(y_test_svm, y_pred_svm).ravel()
+fpr_svm = fp_svm / (fp_svm + tn_svm)
+
+print("Optimized SVM Accuracy:", accuracy_svm)
+print("Optimized SVM False Positive Rate:", fpr_svm)

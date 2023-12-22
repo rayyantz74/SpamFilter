@@ -1,0 +1,25 @@
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.feature_selection import RFE
+from sklearn.preprocessing import LabelEncoder
+import pandas as pd
+
+df = pd.read_csv('ClaMP_Integrated-5184.csv')
+
+label_encoders = {}
+for column in df.select_dtypes(include=['object']).columns:
+    le = LabelEncoder()
+    df[column] = le.fit_transform(df[column])
+    label_encoders[column] = le
+
+X = df.drop(columns=['class'])
+y = df['class']
+
+clf = RandomForestClassifier()
+
+selector = RFE(estimator=clf, n_features_to_select=10)
+selector = selector.fit(X, y)
+
+selected_features = X.columns[selector.support_]
+print("Selected features:")
+for feature in selected_features:
+    print(feature)

@@ -1,0 +1,70 @@
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.feature_selection import RFE
+from sklearn.preprocessing import LabelEncoder, StandardScaler
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.svm import SVC
+from sklearn.model_selection import train_test_split, cross_val_score, KFold, LeaveOneOut
+import pandas as pd
+
+# Load the data
+df = pd.read_csv('ClaMP_Integrated-5184.csv')
+
+# Convert categorical columns to numerical values using label encoding
+label_encoders = {}
+for column in df.select_dtypes(include=['object']).columns:
+    le = LabelEncoder()
+    df[column] = le.fit_transform(df[column])
+    label_encoders[column] = le
+
+# Define features (X) and target (y)
+X = df.drop(columns=['class'])
+y = df['class']
+
+# Handle missing values by filling them with column means
+X = X.fillna(X.mean())
+
+# Standardize the features
+scaler = StandardScaler()
+X_scaled = scaler.fit_transform(X)
+
+# Create a Random Forest Classifier
+clf = RandomForestClassifier()
+
+# Use RFE for feature selection, keeping 10 features
+selector = RFE(estimator=clf, n_features_to_select=10)
+selector = selector.fit(X_scaled, y)
+
+# Print the selected features
+selected_features = X.columns[selector.support_]
+print("Selected features:")
+for feature in selected_features:
+    print(feature)
+
+# Define models and cross-validation methods
+models = {
+    "J48 Decision Tree": DecisionTreeClassifier(),
+    "Support Vector Machine": SVC()
+}
+
+cv_methods = {
+    "Holdout Method": train_test_split(X_scaled, y, test_size=0.2, random_state=42),
+    "K-fold Method": KFold(n_splits=10),
+    "Leave-One-Out Method": LeaveOneOut()
+}
+
+# Cross-validation
+for model_name, model in models.items():
+    print(f"\n{model_name}")
+    for cv_name, cv in cv_methods.items():
+        if cv_name == "Holdout Method":
+            X_train, X_test, y_train, y_test = cv
+            model.fit(X_train, y_train)
+            score = model.score(X_test, y_test)
+            print(f"{cv_name} accuracy: {score:.4f}")
+        else:
+            scores = cross_val_score(model, X_scaled, y, cv=cv, scoring='accuracy')
+            avg_score = scores.mean()
+            print(f"{cv_name} average accuracy: {avg_score:.4f}")
+
+# Indicate completion
+print("\nTransformation, Training, and Cross-validation complete!")

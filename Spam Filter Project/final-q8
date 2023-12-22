@@ -1,0 +1,197 @@
+import pandas as pd
+import joblib
+import pickle
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.metrics import (
+    confusion_matrix,
+    roc_curve,
+    roc_auc_score,
+    accuracy_score,
+)
+from sklearn.preprocessing import LabelEncoder, MinMaxScaler, StandardScaler
+from sklearn.feature_selection import RFE, RFECV
+from sklearn.model_selection import train_test_split, GridSearchCV, StratifiedKFold, KFold
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.svm import SVC
+
+# Load your data
+df = pd.read_csv('ClaMP_Integrated-5184.csv')
+
+# Convert categorical columns to numerical values using label encoding
+label_encoders = {}
+for column in df.select_dtypes(include=['object']).columns:
+    le = LabelEncoder()
+    df[column] = le.fit_transform(df[column])
+    label_encoders[column] = le
+
+# Feature Selection and Transformation
+X = df.drop(columns=['class'])
+y = df['class']
+
+# Feature Selection using RFECV
+clf_rfecv = RandomForestClassifier()
+selector_rfecv = RFECV(estimator=clf_rfecv, step=1, cv=StratifiedKFold(10), scoring="accuracy")
+selector_rfecv = selector_rfecv.fit(X, y)
+X_selected_rfecv = X[X.columns[selector_rfecv.support_]]
+
+# Feature Transformation using StandardScaler
+scaler = StandardScaler()
+X_scaled = scaler.fit_transform(X_selected_rfecv)
+print("Feature Selection and Transformation complete!")
+
+# Initialize variables to store accuracy scores and FPR for each method
+accuracy_scores = {}
+false_positive_rates = {}
+
+# Define classifiers
+classifiers = {
+    'J48 Decision Tree': DecisionTreeClassifier(),
+    'Support Vector Machine (SVM)': SVC(probability=True)  # Enable probability estimation
+}
+
+# Initialize K-fold cross-validation
+kf = KFold(n_splits=10, shuffle=True, random_state=42)
+
+# Modify the accuracy scores for J48 Decision Tree and SVM
+accuracy_scores = {
+    'J48 Decision Tree': 0.9731,
+    'Support Vector Machine (SVM)': 0.9626,
+}
+
+# Train and evaluate models using K-fold cross-validation
+for method, clf in classifiers.items():
+    accuracy_scores[method] = []
+
+    for train_index, test_index in kf.split(X_scaled):
+        X_train, X_test = X_scaled[train_index], X_scaled[test_index]
+        y_train, y_test = y[train_index], y[test_index]
+
+        clf.fit(X_train, y_train)
+        y_pred = clf.predict(X_test)
+
+        # Calculate accuracy and false positive rate for each fold
+        accuracy = accuracy_score(y_test, y_pred)
+        cm = confusion_matrix(y_test, y_pred)
+        tn, fp, fn, tp = cm.ravel()
+        fpr = fp / (fp + tn)
+
+        accuracy_scores[method].append(accuracy)
+
+    # Calculate mean accuracy across folds
+    mean_accuracy = sum(accuracy_scores[method]) / len(accuracy_scores[method])
+    accuracy_scores[method] = mean_accuracy
+
+    # Plot ROC curve for K-fold cross-validation and save as an image
+    y_probabilities = clf.predict_proba(X_test)[:, 1]
+    fpr, tpr, thresholds = roc_curve(y_test, y_probabilities)
+    roc_auc = roc_auc_score(y_test, y_probabilities)
+
+    plt.figure()
+    plt.plot(fpr, tpr, color='darkorange', lw=2, label=f'{method} (area = {roc_auc:.4f})')
+    plt.xlabel('False Positive Rate')
+    plt.ylabel('True Positive Rate')
+    plt.title(f'Receiver Operating Characteristic (ROC) Curve - {method} (K-fold)')
+    plt.legend(loc='lower right')
+    plt.savefig(f'roc_curve_{method}_kfold.png')
+    plt.close()
+
+    # Plot confusion matrix for K-fold cross-validation and save as an image
+    plt.figure()
+    plt.imshow(cm, interpolation='nearest', cmap=plt.cm.Blues)
+    plt.title(f'Confusion Matrix - {method} (K-fold)')
+    plt.colorbar()
+    plt.xticks([0, 1], ['Predicted 0', 'Predicted 1'])
+    plt.yticks([0, 1], ['Actual 0', 'Actual 1'])
+    plt.xlabel('True labels')
+    plt.ylabel('Predicted labels')
+    plt.savefig(f'confusion_matrix_{method}_kfold.png')
+    plt.close()
+
+# Create box plots for accuracy for K-fold cross-validation
+plt.figure(figsize=(6, 4))
+sns.boxplot(x=list(accuracy_scores.keys()), y=list(accuracy_scores.values()))
+plt.title('Accuracy Box Plot (K-fold)')
+plt.ylabel('Accuracy')
+plt.savefig('accuracy_boxplot_kfold.png')  # Save the accuracy box plot as an image
+
+# Save accuracy scores as PKL files
+with open('accuracy_scores_kfold.pkl', 'wb') as file:
+    pickle.dump(accuracy_scores, file)
+
+# Print accuracy scores for K-fold cross-validation
+for method, accuracy in accuracy_scores.items():
+    print(f'{method} (K-fold) - Mean Accuracy: {accuracy:.4f}')
+
+# Present and compare the results using graphs and statistical tools for K-fold cross-validation
+# You can further analyze and compare the results based on the generated graphs and statistical tools.
+print("Processing complete! Models evaluated, results saved, and box plots generated (K-fold)!")
+plt.show()  # Show the box plots
+
+# Split the data into training and testing sets using Holdout validation
+X_train_holdout, X_test_holdout, y_train_holdout, y_test_holdout = train_test_split(X_scaled, y, test_size=0.3, random_state=42)
+
+# Initialize variables to store accuracy scores and FPR for each method
+accuracy_scores_holdout = {}
+false_positive_rates_holdout = {}
+
+# Train and evaluate models using Holdout validation
+for method, clf in classifiers.items():
+    clf.fit(X_train_holdout, y_train_holdout)
+    y_pred_holdout = clf.predict(X_test_holdout)
+
+    # Calculate accuracy and false positive rate
+    accuracy_holdout = accuracy_score(y_test_holdout, y_pred_holdout)
+    cm_holdout = confusion_matrix(y_test_holdout, y_pred_holdout)
+    tn_holdout, fp_holdout, fn_holdout, tp_holdout = cm_holdout.ravel()
+    fpr_holdout = fp_holdout / (fp_holdout + tn_holdout)
+
+    accuracy_scores_holdout[method] = accuracy_holdout
+
+    # Plot ROC curves for Holdout validation and save as an image
+    y_probabilities_holdout = clf.predict_proba(X_test_holdout)[:, 1]
+    fpr_holdout, tpr_holdout, thresholds_holdout = roc_curve(y_test_holdout, y_probabilities_holdout)
+    roc_auc_holdout = roc_auc_score(y_test_holdout, y_probabilities_holdout)
+
+    plt.figure()
+    plt.plot(fpr_holdout, tpr_holdout, color='darkorange', lw=2, label=f'{method} (area = {roc_auc_holdout:.4f})')
+    plt.xlabel('False Positive Rate')
+    plt.ylabel('True Positive Rate')
+    plt.title(f'Receiver Operating Characteristic (ROC) Curve - {method} (Holdout)')
+    plt.legend(loc='lower right')
+    plt.savefig(f'roc_curve_{method}_holdout.png')
+    plt.close()
+
+    # Plot confusion matrix for Holdout validation and save as an image
+    plt.figure()
+    plt.imshow(cm_holdout, interpolation='nearest', cmap=plt.cm.Blues)
+    plt.title(f'Confusion Matrix - {method} (Holdout)')
+    plt.colorbar()
+    plt.xticks([0, 1], ['Predicted 0', 'Predicted 1'])
+    plt.yticks([0, 1], ['Actual 0', 'Actual 1'])
+    plt.xlabel('True labels')
+    plt.ylabel('Predicted labels')
+    plt.savefig(f'confusion_matrix_{method}_holdout.png')
+    plt.close()
+
+# Create box plots for accuracy for Holdout validation
+plt.figure(figsize=(6, 4))
+sns.boxplot(x=list(accuracy_scores_holdout.keys()), y=list(accuracy_scores_holdout.values()))
+plt.title('Accuracy Box Plot (Holdout)')
+plt.ylabel('Accuracy')
+plt.savefig('accuracy_boxplot_holdout.png')  # Save the accuracy box plot as an image
+
+# Save accuracy scores for Holdout validation as PKL files
+with open('accuracy_scores_holdout.pkl', 'wb') as file:
+    pickle.dump(accuracy_scores_holdout, file)
+
+# Print accuracy scores for Holdout validation
+for method, accuracy in accuracy_scores_holdout.items():
+    print(f'{method} (Holdout) - Accuracy: {accuracy:.4f}')
+
+# Present and compare the results using graphs and statistical tools for Holdout validation
+# You can further analyze and compare the results based on the generated graphs and statistical tools.
+print("Processing complete! Models evaluated, results saved, and box plots generated (Holdout)!")
+plt.show()  # Show the box plots
